@@ -5,7 +5,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -13,16 +12,16 @@ import androidx.core.content.ContextCompat
 class MainActivity : ComponentActivity() {
 
     companion object {
-        private const val LOCATION_PERMISSION_REQUEST = 100
+        private const val REQUEST_LOCATION = 100
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        requestLocationPermissions()
+        requestPermissions()
     }
 
-    private fun requestLocationPermissions() {
+    private fun requestPermissions() {
 
         val permissions = mutableListOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
@@ -35,24 +34,21 @@ class MainActivity : ComponentActivity() {
             )
         }
 
-        val missingPermissions = permissions.filter {
+        val missing = permissions.filter {
             ContextCompat.checkSelfPermission(
                 this,
                 it
             ) != PackageManager.PERMISSION_GRANTED
         }
 
-        if (missingPermissions.isNotEmpty()) {
-
+        if (missing.isEmpty()) {
+            startLocationService()
+        } else {
             ActivityCompat.requestPermissions(
                 this,
-                missingPermissions.toTypedArray(),
-                LOCATION_PERMISSION_REQUEST
+                missing.toTypedArray(),
+                REQUEST_LOCATION
             )
-
-        } else {
-
-            startLocationService()
         }
     }
 
@@ -61,14 +57,13 @@ class MainActivity : ComponentActivity() {
         permissions: Array<out String>,
         grantResults: IntArray
     ) {
-
         super.onRequestPermissionsResult(
             requestCode,
             permissions,
             grantResults
         )
 
-        if (requestCode == LOCATION_PERMISSION_REQUEST) {
+        if (requestCode == REQUEST_LOCATION) {
 
             if (
                 grantResults.isNotEmpty() &&
@@ -76,7 +71,6 @@ class MainActivity : ComponentActivity() {
                     it == PackageManager.PERMISSION_GRANTED
                 }
             ) {
-
                 startLocationService()
             }
         }
