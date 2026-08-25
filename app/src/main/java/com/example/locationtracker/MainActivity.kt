@@ -1,4 +1,3 @@
-```kotlin
 package com.example.locationtracker
 
 import android.Manifest
@@ -437,4 +436,3 @@ class MainActivity : ComponentActivity() {
             )
     }
 }
-```
