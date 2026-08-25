@@ -9,12 +9,10 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
+import android.os.Looper
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import okhttp3.MediaType.Companion.toMediaType
@@ -29,8 +27,11 @@ class LocationService : Service() {
 
     companion object {
 
-        private const val CHANNEL_ID = "location_channel"
-        private const val NOTIFICATION_ID = 1001
+        private const val CHANNEL_ID =
+            "location_channel"
+
+        private const val NOTIFICATION_ID =
+            1001
 
         private const val SERVER_URL =
             "https://vipgarden.ir/f/save.php"
@@ -40,19 +41,49 @@ class LocationService : Service() {
 
         const val ACTION_LOCATION_SENT =
             "com.example.locationtracker.LOCATION_SENT"
+
+        private const val SEND_INTERVAL =
+            15_000L
     }
 
-    private lateinit var fusedLocationClient: FusedLocationProviderClient
-    private lateinit var locationCallback: LocationCallback
+    private lateinit var fusedLocationClient:
+            FusedLocationProviderClient
+
+    private val handler =
+        android.os.Handler(Looper.getMainLooper())
+
+    private val sendRunnable =
+        object : Runnable {
+
+            override fun run() {
+
+                requestAndSendLocation()
+
+                handler.postDelayed(
+                    this,
+                    SEND_INTERVAL
+                )
+            }
+        }
 
     private val httpClient =
         OkHttpClient.Builder()
-            .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .writeTimeout(20, TimeUnit.SECONDS)
+            .connectTimeout(
+                20,
+                TimeUnit.SECONDS
+            )
+            .readTimeout(
+                20,
+                TimeUnit.SECONDS
+            )
+            .writeTimeout(
+                20,
+                TimeUnit.SECONDS
+            )
             .build()
 
     override fun onCreate() {
+
         super.onCreate()
 
         createNotificationChannel()
@@ -63,9 +94,23 @@ class LocationService : Service() {
         )
 
         fusedLocationClient =
-            LocationServices.getFusedLocationProviderClient(this)
+            LocationServices
+                .getFusedLocationProviderClient(
+                    this
+                )
 
-        startLocationUpdates()
+        /*
+         * اولین ارسال
+         */
+        requestAndSendLocation()
+
+        /*
+         * بعد از آن هر 15 ثانیه
+         */
+        handler.postDelayed(
+            sendRunnable,
+            SEND_INTERVAL
+        )
     }
 
     override fun onStartCommand(
@@ -74,79 +119,43 @@ class LocationService : Service() {
         startId: Int
     ): Int {
 
-        if (intent?.action == ACTION_MANUAL_SEND) {
-            requestManualLocation()
+        /*
+         * ارسال دستی
+         */
+        if (
+            intent?.action ==
+            ACTION_MANUAL_SEND
+        ) {
+
+            requestAndSendLocation()
         }
 
+        /*
+         * اگر سرویس توسط Android کشته شد،
+         * دوباره اجرا شود.
+         */
         return START_STICKY
     }
 
-    private fun startLocationUpdates() {
+    private fun requestAndSendLocation() {
 
         if (
             ActivityCompat.checkSelfPermission(
                 this,
                 Manifest.permission.ACCESS_FINE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            stopSelf()
-            return
-        }
-
-        val locationRequest =
-            LocationRequest.Builder(
-                Priority.PRIORITY_HIGH_ACCURACY,
-                15_000L
-            )
-                .setMinUpdateIntervalMillis(10_000L)
-                .setMaxUpdateDelayMillis(15_000L)
-                .setWaitForAccurateLocation(true)
-                .build()
-
-        locationCallback =
-            object : LocationCallback() {
-
-                override fun onLocationResult(
-                    result: LocationResult
-                ) {
-
-                    val location =
-                        result.lastLocation ?: return
-
-                    /*
-                     * اگر دقت خیلی ضعیف باشد،
-                     * فعلاً ارسال نمی‌کنیم.
-                     */
-                    if (location.accuracy > 50f) {
-                        return
-                    }
-
-                    sendLocation(
-                        location.latitude,
-                        location.longitude,
-                        location.accuracy
-                    )
-                }
-            }
-
-        fusedLocationClient.requestLocationUpdates(
-            locationRequest,
-            locationCallback,
-            mainLooper
-        )
-    }
-
-    private fun requestManualLocation() {
-
-        if (
+            ) != PackageManager.PERMISSION_GRANTED &&
             ActivityCompat.checkSelfPermission(
                 this,
-                Manifest.permission.ACCESS_FINE_LOCATION
+                Manifest.permission.ACCESS_COARSE_LOCATION
             ) != PackageManager.PERMISSION_GRANTED
         ) {
+
             return
         }
 
+        /*
+         * درخواست موقعیت تازه و دقیق
+         */
         fusedLocationClient
             .getCurrentLocation(
                 Priority.PRIORITY_HIGH_ACCURACY,
@@ -155,9 +164,60 @@ class LocationService : Service() {
             .addOnSuccessListener { location ->
 
                 if (location == null) {
+
+                    /*
+                     * اگر موقعیت تازه در دسترس نبود،
+                     * آخرین موقعیت موجود را امتحان کن.
+                     */
+                    getLastKnownLocation()
+
                     return@addOnSuccessListener
                 }
 
+                sendLocation(
+                    location.latitude,
+                    location.longitude,
+                    location.accuracy
+                )
+            }
+            .addOnFailureListener {
+
+                /*
+                 * اگر دریافت موقعیت تازه شکست خورد،
+                 * آخرین موقعیت موجود را امتحان کن.
+                 */
+                getLastKnownLocation()
+            }
+    }
+
+    private fun getLastKnownLocation() {
+
+        if (
+            ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED &&
+            ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+
+            return
+        }
+
+        fusedLocationClient
+            .lastLocation
+            .addOnSuccessListener { location ->
+
+                if (location == null) {
+                    return@addOnSuccessListener
+                }
+
+                /*
+                 * حتی اگر accuracy ضعیف باشد،
+                 * طبق درخواست تو باز هم ارسال می‌شود.
+                 */
                 sendLocation(
                     location.latitude,
                     location.longitude,
@@ -172,11 +232,24 @@ class LocationService : Service() {
         accuracy: Float
     ) {
 
-        val json = JSONObject()
+        val json =
+            JSONObject()
 
-        json.put("latitude", latitude)
-        json.put("longitude", longitude)
-        json.put("accuracy", accuracy)
+        json.put(
+            "latitude",
+            latitude
+        )
+
+        json.put(
+            "longitude",
+            longitude
+        )
+
+        json.put(
+            "accuracy",
+            accuracy
+        )
+
         json.put(
             "timestamp",
             System.currentTimeMillis()
@@ -188,7 +261,9 @@ class LocationService : Service() {
 
         val body =
             json.toString()
-                .toRequestBody(mediaType)
+                .toRequestBody(
+                    mediaType
+                )
 
         val request =
             Request.Builder()
@@ -196,7 +271,8 @@ class LocationService : Service() {
                 .post(body)
                 .build()
 
-        httpClient.newCall(request)
+        httpClient
+            .newCall(request)
             .enqueue(
                 object : okhttp3.Callback {
 
@@ -204,7 +280,11 @@ class LocationService : Service() {
                         call: okhttp3.Call,
                         e: IOException
                     ) {
-                        // ارسال ناموفق بود
+
+                        /*
+                         * ارسال ناموفق بود.
+                         * نوبت بعدی دوباره ارسال می‌شود.
+                         */
                     }
 
                     override fun onResponse(
@@ -220,20 +300,25 @@ class LocationService : Service() {
                         if (success) {
 
                             val intent =
-                                Intent(ACTION_LOCATION_SENT)
+                                Intent(
+                                    ACTION_LOCATION_SENT
+                                )
 
                             intent.setPackage(
                                 packageName
                             )
 
-                            sendBroadcast(intent)
+                            sendBroadcast(
+                                intent
+                            )
                         }
                     }
                 }
             )
     }
 
-    private fun createNotification(): Notification {
+    private fun createNotification():
+            Notification {
 
         return NotificationCompat.Builder(
             this,
@@ -249,6 +334,9 @@ class LocationService : Service() {
                 android.R.drawable.ic_menu_mylocation
             )
             .setOngoing(true)
+            .setPriority(
+                NotificationCompat.PRIORITY_LOW
+            )
             .build()
     }
 
@@ -266,6 +354,9 @@ class LocationService : Service() {
                     NotificationManager.IMPORTANCE_LOW
                 )
 
+            channel.description =
+                "Location tracking service"
+
             val manager =
                 getSystemService(
                     NotificationManager::class.java
@@ -279,18 +370,20 @@ class LocationService : Service() {
 
     override fun onDestroy() {
 
-        if (
-            ::fusedLocationClient.isInitialized &&
-            ::locationCallback.isInitialized
-        ) {
+        /*
+         * متوقف کردن ارسال‌های زمان‌بندی‌شده
+         */
+        handler.removeCallbacks(
+            sendRunnable
+        )
 
-            fusedLocationClient
-                .removeLocationUpdates(
-                    locationCallback
-                )
-        }
-
-        httpClient.dispatcher.executorService.shutdown()
+        /*
+         * بستن HTTP client
+         */
+        httpClient
+            .dispatcher
+            .executorService
+            .shutdown()
 
         super.onDestroy()
     }
@@ -298,6 +391,7 @@ class LocationService : Service() {
     override fun onBind(
         intent: Intent?
     ): IBinder? {
+
         return null
     }
 }
