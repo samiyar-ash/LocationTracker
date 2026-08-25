@@ -11,9 +11,15 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
-import com.google.android.gms.location.*
-import okhttp3.*
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
@@ -23,8 +29,7 @@ class LocationService : Service() {
 
     companion object {
 
-        private const val CHANNEL_ID =
-            "location_tracking_channel"
+        private const val CHANNEL_ID = "location_channel"
 
         private const val NOTIFICATION_ID = 1001
 
@@ -38,11 +43,12 @@ class LocationService : Service() {
     private lateinit var locationCallback:
             LocationCallback
 
-    private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .writeTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .build()
+    private val httpClient =
+        OkHttpClient.Builder()
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .writeTimeout(20, TimeUnit.SECONDS)
+            .build()
 
 
     override fun onCreate() {
@@ -57,7 +63,8 @@ class LocationService : Service() {
         )
 
         fusedLocationClient =
-            LocationServices.getFusedLocationProviderClient(this)
+            LocationServices
+                .getFusedLocationProviderClient(this)
 
         startLocationUpdates()
     }
@@ -71,7 +78,9 @@ class LocationService : Service() {
                 Manifest.permission.ACCESS_FINE_LOCATION
             ) != PackageManager.PERMISSION_GRANTED
         ) {
+
             stopSelf()
+
             return
         }
 
@@ -163,20 +172,19 @@ class LocationService : Service() {
 
         httpClient.newCall(request)
             .enqueue(
-                object : Callback {
+                object : okhttp3.Callback {
 
                     override fun onFailure(
-                        call: Call,
+                        call: okhttp3.Call,
                         e: IOException
                     ) {
-                        // اینترنت قطع است.
-                        // موقعیت بعدی دوباره ارسال می‌شود.
+                        // ارسال بعدی دوباره تلاش می‌شود
                     }
 
 
                     override fun onResponse(
-                        call: Call,
-                        response: Response
+                        call: okhttp3.Call,
+                        response: okhttp3.Response
                     ) {
 
                         response.close()
@@ -193,10 +201,10 @@ class LocationService : Service() {
             CHANNEL_ID
         )
             .setContentTitle(
-                "Location tracking فعال است"
+                "Location Tracker"
             )
             .setContentText(
-                "موقعیت دستگاه در حال به‌روزرسانی است."
+                "Location service is active"
             )
             .setSmallIcon(
                 android.R.drawable.ic_menu_mylocation
@@ -220,15 +228,12 @@ class LocationService : Service() {
                     NotificationManager.IMPORTANCE_LOW
                 )
 
-
             val manager =
                 getSystemService(
                     NotificationManager::class.java
                 )
 
-            manager.createNotificationChannel(
-                channel
-            )
+            manager.createNotificationChannel(channel)
         }
     }
 
@@ -245,10 +250,6 @@ class LocationService : Service() {
                     locationCallback
                 )
         }
-
-        httpClient.dispatcher
-            .executorService
-            .shutdown()
 
         super.onDestroy()
     }
