@@ -107,7 +107,7 @@ class MainActivity : ComponentActivity() {
             Button(this)
 
         sendButton.text =
-            "ارسال دستی"
+            "ارسال فایل"
 
         sendButton.setOnClickListener {
 
