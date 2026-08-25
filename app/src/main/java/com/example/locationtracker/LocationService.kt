@@ -88,12 +88,12 @@ class LocationService : Service() {
         val locationRequest =
             LocationRequest.Builder(
                 Priority.PRIORITY_HIGH_ACCURACY,
-                60_000L
+                15_000L
             )
-                .setMinUpdateIntervalMillis(30_000L)
-                .setMaxUpdateDelayMillis(60_000L)
-                .setWaitForAccurateLocation(false)
-                .build()
+            .setMinUpdateIntervalMillis(15_000L)
+            .setMaxUpdateDelayMillis(15_000L)
+            .setWaitForAccurateLocation(true)
+            .build()
 
 
         locationCallback =
