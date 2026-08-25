@@ -6,71 +6,61 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
 
-```
-private val permissionLauncher =
-    registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
+    companion object {
+        private const val REQUEST_LOCATION = 100
+    }
 
-        val allGranted = permissions.values.all { it }
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        requestPermissions()
+    }
 
-        if (allGranted) {
+    private fun requestPermissions() {
+
+        val permissions = mutableListOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            permissions.add(
+                Manifest.permission.ACCESS_BACKGROUND_LOCATION
+            )
+        }
+
+        val missingPermissions = permissions.filter {
+            ContextCompat.checkSelfPermission(
+                this,
+                it
+            ) != PackageManager.PERMISSION_GRANTED
+        }
+
+        if (missingPermissions.isEmpty()) {
             startLocationService()
+        } else {
+            ActivityCompat.requestPermissions(
+                this,
+                missingPermissions.toTypedArray(),
+                REQUEST_LOCATION
+            )
         }
     }
 
-override fun onCreate(savedInstanceState: Bundle?) {
-    super.onCreate(savedInstanceState)
+    private fun startLocationService() {
 
-    requestPermissions()
-}
-
-private fun requestPermissions() {
-
-    val permissions = mutableListOf(
-        Manifest.permission.ACCESS_FINE_LOCATION,
-        Manifest.permission.ACCESS_COARSE_LOCATION
-    )
-
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        permissions.add(
-            Manifest.permission.ACCESS_BACKGROUND_LOCATION
-        )
-    }
-
-    val missingPermissions = permissions.filter { permission ->
-        ContextCompat.checkSelfPermission(
+        val intent = Intent(
             this,
-            permission
-        ) != PackageManager.PERMISSION_GRANTED
-    }
+            LocationService::class.java
+        )
 
-    if (missingPermissions.isEmpty()) {
-        startLocationService()
-    } else {
-        permissionLauncher.launch(
-            missingPermissions.toTypedArray()
+        ContextCompat.startForegroundService(
+            this,
+            intent
         )
     }
-}
-
-private fun startLocationService() {
-
-    val intent = Intent(
-        this,
-        LocationService::class.java
-    )
-
-    ContextCompat.startForegroundService(
-        this,
-        intent
-    )
-}
-```
-
 }
