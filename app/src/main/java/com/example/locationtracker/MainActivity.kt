@@ -12,18 +12,12 @@ import androidx.core.content.ContextCompat
 class MainActivity : ComponentActivity() {
 
 ```
-companion object {
-    private const val REQUEST_LOCATION = 100
-}
-
 private val permissionLauncher =
     registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
 
-        val allGranted = permissions.values.all { granted ->
-            granted
-        }
+        val allGranted = permissions.values.all { it }
 
         if (allGranted) {
             startLocationService()
@@ -43,10 +37,6 @@ private fun requestPermissions() {
         Manifest.permission.ACCESS_COARSE_LOCATION
     )
 
-    /*
-     * Android 10 (API 29) و بالاتر:
-     * اجازه دسترسی به موقعیت مکانی در پس‌زمینه
-     */
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         permissions.add(
             Manifest.permission.ACCESS_BACKGROUND_LOCATION
