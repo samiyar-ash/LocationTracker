@@ -1,7 +1,10 @@
 package com.example.locationtracker
 
 import android.Manifest
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -9,245 +12,187 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
-import com.google.android.gms.location.LocationServices
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONObject
-import java.io.IOException
-import java.util.concurrent.TimeUnit
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
 
     companion object {
-        private const val SERVER_URL =
-            "https://vipgarden.ir/f/save.php"
+        private const val REQUEST_LOCATION = 100
     }
 
-    private lateinit var statusText: TextView
-    private lateinit var locationText: TextView
+    private lateinit var lastSentText: TextView
 
-    private val httpClient =
-        OkHttpClient.Builder()
-            .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .writeTimeout(20, TimeUnit.SECONDS)
-            .build()
+    private val locationSentReceiver =
+        object : BroadcastReceiver() {
 
-    private val fusedLocationClient by lazy {
-        LocationServices.getFusedLocationProviderClient(this)
-    }
+            override fun onReceive(
+                context: Context?,
+                intent: Intent?
+            ) {
 
-    private val locationPermissionLauncher =
-        registerForActivityResult(
-            ActivityResultContracts.RequestMultiplePermissions()
-        ) { permissions ->
+                if (
+                    intent?.action ==
+                    LocationService.ACTION_LOCATION_SENT
+                ) {
 
-            val fineGranted =
-                permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true
-
-            val coarseGranted =
-                permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
-
-            if (fineGranted || coarseGranted) {
-
-                statusText.text =
-                    "مجوز موقعیت دریافت شد"
-
-                startLocationService()
-
-                requestBackgroundPermissionIfNeeded()
-
-            } else {
-
-                statusText.text =
-                    "مجوز موقعیت داده نشد"
+                    updateLastSentTime()
+                }
             }
         }
-
-    private val backgroundPermissionLauncher =
-        registerForActivityResult(
-            ActivityResultContracts.RequestPermission()
-        ) { granted ->
-
-            if (granted) {
-
-                statusText.text =
-                    "مجوز Background Location فعال شد"
-
-            } else {
-
-                statusText.text =
-                    "Background Location فعال نیست"
-            }
-        }
-
 
     override fun onCreate(
         savedInstanceState: Bundle?
     ) {
+
         super.onCreate(savedInstanceState)
 
-        createUI()
+        createInterface()
 
         requestPermissions()
     }
 
+    private fun createInterface() {
 
-    private fun createUI() {
+        val root =
+            LinearLayout(this)
 
-        val layout =
-            LinearLayout(this).apply {
+        root.orientation =
+            LinearLayout.VERTICAL
 
-                orientation =
-                    LinearLayout.VERTICAL
-
-                setPadding(
-                    40,
-                    60,
-                    40,
-                    40
-                )
-            }
-
+        root.setPadding(
+            32,
+            48,
+            32,
+            32
+        )
 
         val title =
-            TextView(this).apply {
+            TextView(this)
 
-                text =
-                    "Location Tracker"
+        title.text =
+            "Location Tracker"
 
-                textSize =
-                    26f
-            }
+        title.textSize = 24f
 
+        title.setPadding(
+            0,
+            0,
+            0,
+            32
+        )
 
-        statusText =
-            TextView(this).apply {
+        root.addView(title)
 
-                text =
-                    "در حال بررسی مجوز..."
+        lastSentText =
+            TextView(this)
 
-                textSize =
-                    18f
+        lastSentText.text =
+            "آخرین ارسال: هنوز ارسال نشده"
 
-                setPadding(
-                    0,
-                    40,
-                    0,
-                    20
-                )
-            }
+        lastSentText.textSize = 18f
 
+        lastSentText.setPadding(
+            0,
+            0,
+            0,
+            32
+        )
 
-        locationText =
-            TextView(this).apply {
-
-                text =
-                    "موقعیت: ---"
-
-                textSize =
-                    17f
-
-                setPadding(
-                    0,
-                    10,
-                    0,
-                    30
-                )
-            }
-
+        root.addView(lastSentText)
 
         val sendButton =
-            Button(this).apply {
+            Button(this)
 
-                text =
-                    "ارسال موقعیت دستی"
+        sendButton.text =
+            "ارسال دستی"
 
-                textSize =
-                    18f
+        sendButton.setOnClickListener {
 
-                setOnClickListener {
+            sendManualLocation()
+        }
 
-                    sendLocationManually()
-                }
-            }
+        root.addView(
+            sendButton,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
 
-
-        layout.addView(title)
-
-        layout.addView(statusText)
-
-        layout.addView(locationText)
-
-        layout.addView(sendButton)
-
-
-        setContentView(layout)
+        setContentView(root)
     }
-
 
     private fun requestPermissions() {
 
-        val fine =
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
-
-        val coarse =
-            ContextCompat.checkSelfPermission(
-                this,
+        val permissions =
+            mutableListOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.ACCESS_COARSE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
-
-
-        if (fine || coarse) {
-
-            statusText.text =
-                "مجوز موقعیت فعال است"
-
-            startLocationService()
-
-            requestBackgroundPermissionIfNeeded()
-
-        } else {
-
-            locationPermissionLauncher.launch(
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION
-                )
             )
-        }
-    }
-
-
-    private fun requestBackgroundPermissionIfNeeded() {
 
         if (
             Build.VERSION.SDK_INT >=
             Build.VERSION_CODES.Q
         ) {
 
-            val granted =
+            permissions.add(
+                Manifest.permission.ACCESS_BACKGROUND_LOCATION
+            )
+        }
+
+        val missing =
+            permissions.filter {
+
                 ContextCompat.checkSelfPermission(
                     this,
-                    Manifest.permission.ACCESS_BACKGROUND_LOCATION
-                ) == PackageManager.PERMISSION_GRANTED
-
-            if (!granted) {
-
-                backgroundPermissionLauncher.launch(
-                    Manifest.permission.ACCESS_BACKGROUND_LOCATION
-                )
+                    it
+                ) != PackageManager.PERMISSION_GRANTED
             }
+
+        if (missing.isEmpty()) {
+
+            startLocationService()
+
+        } else {
+
+            requestPermissions(
+                missing.toTypedArray(),
+                REQUEST_LOCATION
+            )
         }
     }
 
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+
+        super.onRequestPermissionsResult(
+            requestCode,
+            permissions,
+            grantResults
+        )
+
+        if (
+            requestCode ==
+            REQUEST_LOCATION
+        ) {
+
+            if (
+                grantResults.isNotEmpty() &&
+                grantResults.all {
+                    it == PackageManager.PERMISSION_GRANTED
+                }
+            ) {
+
+                startLocationService()
+            }
+        }
+    }
 
     private fun startLocationService() {
 
@@ -263,176 +208,83 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    private fun sendManualLocation() {
 
-    private fun sendLocationManually() {
-
-        statusText.text =
-            "در حال دریافت موقعیت GPS..."
-
-
-        val fineGranted =
-            ContextCompat.checkSelfPermission(
+        val intent =
+            Intent(
                 this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
+                LocationService::class.java
+            )
 
-        val coarseGranted =
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
+        intent.action =
+            LocationService.ACTION_MANUAL_SEND
 
-
-        if (!fineGranted && !coarseGranted) {
-
-            statusText.text =
-                "ابتدا مجوز Location را فعال کنید"
-
-            return
-        }
-
-
-        fusedLocationClient.lastLocation
-            .addOnSuccessListener { location ->
-
-                if (location == null) {
-
-                    statusText.text =
-                        "GPS هنوز موقعیت ندارد. کمی صبر کنید."
-
-                    return@addOnSuccessListener
-                }
-
-
-                val latitude =
-                    location.latitude
-
-                val longitude =
-                    location.longitude
-
-                val accuracy =
-                    location.accuracy
-
-
-                locationText.text =
-                    """
-                    Latitude: $latitude
-                    Longitude: $longitude
-                    Accuracy: $accuracy m
-                    """.trimIndent()
-
-
-                statusText.text =
-                    "موقعیت دریافت شد؛ در حال ارسال..."
-
-
-                sendToServer(
-                    latitude,
-                    longitude,
-                    accuracy
-                )
-            }
-            .addOnFailureListener { error ->
-
-                statusText.text =
-                    "خطا در دریافت GPS: ${error.message}"
-            }
+        ContextCompat.startForegroundService(
+            this,
+            intent
+        )
     }
 
+    private fun updateLastSentTime() {
 
-    private fun sendToServer(
-        latitude: Double,
-        longitude: Double,
-        accuracy: Float
-    ) {
-
-        val json =
-            JSONObject().apply {
-
-                put(
-                    "latitude",
-                    latitude
-                )
-
-                put(
-                    "longitude",
-                    longitude
-                )
-
-                put(
-                    "accuracy",
-                    accuracy
-                )
-
-                put(
-                    "timestamp",
-                    System.currentTimeMillis()
-                )
-            }
-
-
-        val mediaType =
-            "application/json; charset=utf-8"
-                .toMediaType()
-
-
-        val body =
-            json.toString()
-                .toRequestBody(mediaType)
-
-
-        val request =
-            Request.Builder()
-                .url(SERVER_URL)
-                .post(body)
-                .build()
-
-
-        httpClient
-            .newCall(request)
-            .enqueue(
-                object : okhttp3.Callback {
-
-                    override fun onFailure(
-                        call: okhttp3.Call,
-                        e: IOException
-                    ) {
-
-                        runOnUiThread {
-
-                            statusText.text =
-                                "خطا در ارسال: ${e.message}"
-                        }
-                    }
-
-
-                    override fun onResponse(
-                        call: okhttp3.Call,
-                        response: okhttp3.Response
-                    ) {
-
-                        val responseBody =
-                            response.body?.string()
-                                ?: ""
-
-
-                        runOnUiThread {
-
-                            if (response.isSuccessful) {
-
-                                statusText.text =
-                                    "✓ موقعیت با موفقیت ارسال شد\n$responseBody"
-
-                            } else {
-
-                                statusText.text =
-                                    "خطای سرور: HTTP ${response.code}\n$responseBody"
-                            }
-                        }
-
-                        response.close()
-                    }
-                }
+        val formatter =
+            SimpleDateFormat(
+                "yyyy/MM/dd HH:mm:ss",
+                Locale.getDefault()
             )
+
+        val currentTime =
+            formatter.format(
+                Date()
+            )
+
+        lastSentText.text =
+            "آخرین ارسال: $currentTime"
+    }
+
+    override fun onStart() {
+
+        super.onStart()
+
+        val filter =
+            IntentFilter(
+                LocationService.ACTION_LOCATION_SENT
+            )
+
+        if (
+            Build.VERSION.SDK_INT >=
+            Build.VERSION_CODES.TIRAMISU
+        ) {
+
+            registerReceiver(
+                locationSentReceiver,
+                filter,
+                Context.RECEIVER_NOT_EXPORTED
+            )
+
+        } else {
+
+            registerReceiver(
+                locationSentReceiver,
+                filter
+            )
+        }
+    }
+
+    override fun onStop() {
+
+        try {
+
+            unregisterReceiver(
+                locationSentReceiver
+            )
+
+        } catch (
+            e: IllegalArgumentException
+        ) {
+            // قبلاً unregister شده است
+        }
+
+        super.onStop()
     }
 }
